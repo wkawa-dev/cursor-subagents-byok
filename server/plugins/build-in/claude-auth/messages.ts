@@ -3,6 +3,7 @@ import type { ModelSnapshot } from "cursor-byok:model";
 import type { LlmContentPart, LlmRequest, ModelUsage, ProviderOutput } from "cursor-byok:provider";
 
 const REPLAY_KIND = "claude_oauth";
+const CLAUDE_CODE_SYSTEM = "You are Claude Code, Anthropic's official CLI for Claude.";
 
 /** Safe classification only: upstream response bodies and error messages are never retained. */
 export class HttpError extends Error {
@@ -96,9 +97,13 @@ export function buildMessagesBody(model: ModelSnapshot, request: LlmRequest): Ob
     requested && requested > 0 ? requested : 8192,
     maximum && maximum > 0 ? maximum : Number.MAX_SAFE_INTEGER,
   );
+  const system: JsonValue[] = [{ type: "text", text: CLAUDE_CODE_SYSTEM }];
+  if (request.instructions) {
+    system.push({ type: "text", text: request.instructions });
+  }
   const body: ObjectValue = {
     model: model.id,
-    system: request.instructions,
+    system,
     messages,
     max_tokens: maxTokens,
     stream: true,

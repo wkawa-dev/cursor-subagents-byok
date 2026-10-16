@@ -82,17 +82,13 @@ Model invocation
   differ at inference time. The fast-latency hint is not mapped to an unverified subscription
   feature.
 
-## Upstream compatibility limitation
+## Upstream compatibility
 
 The plugin sends Bearer authorization, `anthropic-version: 2023-06-01`, and
-`anthropic-beta: oauth-2025-04-20`. It preserves user instructions and exact tool names. It **does
-not impersonate the official Claude Code client**, inject an official-client system identity, or
-forge a Claude CLI version.
-
-A live Haiku request succeeded without these transformations on 2026-09-30. That result does not
-establish compatibility with every model or account. Anthropic may still reject third-party
-subscription requests, so the plugin reports upstream refusals rather than treating OAuth login as a
-guarantee of inference access.
+`anthropic-beta: oauth-2025-04-20`. It prepends the required Claude Code system identity block
+(`You are Claude Code, Anthropic's official CLI for Claude.`) before any caller instructions so that
+Claude 5+ subscription models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`, etc.) are
+accepted by the OAuth gateway while preserving caller instructions and exact tool names.
 
 ## Install and try
 

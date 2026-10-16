@@ -107,7 +107,14 @@ Deno.test("messages preserve append-only prefix, system content, and exact tool 
   const after = buildMessagesBody(model, next);
   equal((after.messages as JsonValue[]).slice(0, 2), before.messages);
   equal(after.system, before.system);
-  equal(before.system, first.instructions);
+  equal(before.system, [
+    { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." },
+    { type: "text", text: first.instructions },
+  ]);
+  equal(
+    buildMessagesBody(model, { ...first, instructions: "" }).system,
+    [{ type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude." }],
+  );
   equal(before.messages, [
     { role: "user", content: [{ type: "text", text: "context A" }] },
     { role: "user", content: [{ type: "text", text: "hello" }] },
