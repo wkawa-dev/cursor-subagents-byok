@@ -77,7 +77,6 @@ impl App {
             plugin_runtime,
             plugins,
             clients.clone(),
-            config.app_version.clone(),
         )?;
         let harness = control.cursor_harness().clone();
         let mut router = api::router(registry.clone(), clients)?.merge(byok);
@@ -144,6 +143,7 @@ impl App {
         self.registry.web_cache().set_service_addr(address);
         self.harness.set_backend_addr(address);
         tracing::info!(%address, "cursor server listening");
+        tokio::spawn(self.store.clone().run_size_cap(shutdown.clone()));
         let registry = self.registry;
         let harness = self.harness;
         let graceful = shutdown.clone();

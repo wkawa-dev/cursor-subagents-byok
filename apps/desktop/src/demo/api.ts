@@ -110,7 +110,6 @@ export function installDemoApi() {
     const method = (init?.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
     const body = await readBody(input, init);
 
-    if (path === "/promotions") return json({ slots: [] });
     if (path === "/models" && method === "GET") return json(models);
     if (path === "/models" && method === "POST") return json(models);
     if (path === "/models/order") return json(models);

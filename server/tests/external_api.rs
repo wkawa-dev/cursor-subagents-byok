@@ -72,7 +72,6 @@ async fn setup() -> (
         runtime,
         plugins.clone(),
         NetworkClients::new(store.clone()),
-        "0.1.0".into(),
     )
     .unwrap();
     let router = byok::router(store.clone(), plugins, shared_provider, None)

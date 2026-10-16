@@ -8,7 +8,7 @@ use sqlx::{
 
 use crate::Result;
 
-use super::{migrations, writer::WriteCoordinator};
+use super::{migrations, retention, writer::WriteCoordinator};
 
 #[derive(Clone)]
 pub struct Store {
@@ -30,6 +30,7 @@ impl Store {
             .connect_with(options)
             .await?;
         migrations::run(&pool, &database_path).await?;
+        retention::ensure_incremental_vacuum(&pool).await?;
         Ok(Self {
             pool,
             writes: WriteCoordinator::default(),
