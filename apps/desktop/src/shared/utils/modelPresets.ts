@@ -3,6 +3,7 @@ import deepseekIcon from "../assets/provider-icons/deepseek.svg";
 import huoshanIcon from "../assets/provider-icons/huoshan.png";
 import kimiIcon from "../assets/provider-icons/kimi.svg";
 import minimaxIcon from "../assets/provider-icons/minimax.svg";
+import opencodeIcon from "../assets/provider-icons/opencode.svg";
 import zhipuIcon from "../assets/provider-icons/zhipu.svg";
 import { defaultCustomHeaders } from "./modelDefaults";
 
@@ -47,12 +48,21 @@ const entry = (
 });
 
 const claudeHeaders = { ...defaultCustomHeaders };
+/** OpenCode Go: user-agent rozpoznawany przez OpenCode Go routing + session header */
+const opencodeGoHeaders = {
+  "User-Agent": "cursor-byok/1.0 (compatible; codex)",
+  "x-opencode-session": "{{SessionId}}",
+};
 /** anthropic 协议：填 Base URL，自动追加 /v1/messages */
 const anthropic = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "", customHeaders: claudeHeaders });
 /** openai 协议：填 Base URL，自动追加 /v1/chat/completions */
 const openaiChat = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "/v1/chat/completions", customHeaders: null });
 /** openai 协议：路径不规则，直接给完整请求 URL */
 const openaiFullUrl = (url: string): ModelPresetEndpoint => ({ baseUrl: url, useFullUrl: true, openaiEndpoint: "/v1/chat/completions", customHeaders: null });
+/** OpenCode Go Responses API z odpowiednimi headerami */
+const opencodeGoResponses = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "/v1/responses", customHeaders: opencodeGoHeaders });
+/** OpenCode Go Messages API z odpowiednimi headerami (pusta openaiEndpoint dla Anthropic type) */
+const opencodeGoMessages = (baseUrl: string): ModelPresetEndpoint => ({ baseUrl, useFullUrl: false, openaiEndpoint: "", customHeaders: opencodeGoHeaders });
 
 export const modelPresets: ModelPreset[] = [
   {
@@ -121,6 +131,48 @@ export const modelPresets: ModelPreset[] = [
     models: [
       entry("MiniMax-M3", "MiniMax M3", 1000000, 65536),
       entry("MiniMax-M2.7", "MiniMax M2.7", 205000, 32768),
+    ],
+  },
+  {
+    key: "opencode",
+    name: "OpenCode Go",
+    icon: opencodeIcon,
+    keyHint: "opencode.ai/console → Personal workspace → Settings → Service Accounts → Create API Key",
+    endpoints: {
+      anthropic: { baseUrl: "https://opencode.ai/inference/anthropic", useFullUrl: false, openaiEndpoint: "", customHeaders: opencodeGoHeaders },
+      openai: opencodeGoResponses("https://opencode.ai/inference/openai"),
+    },
+    models: [
+      entry("muse-spark-1.3-contributor", "Muse Spark 1.3", 200000, 8192),
+      entry("muse-spark-1.2-contributor", "Muse Spark 1.2", 200000, 8192),
+      entry("gpt-6-luna-contributor", "GPT 6 Luna", 272000, 16384),
+      entry("gpt-5.6-luna-contributor", "GPT 5.6 Luna", 272000, 16384),
+      entry("gemini-4-argon-contributor", "Gemini 4 Argon", 1048576, 65536),
+      entry("glm-5.3-flash-contributor", "GLM 5.3 Flash", 1000000, 65536),
+      entry("glm-5.3-contributor", "GLM 5.3", 1000000, 65536),
+      entry("glm-5.2-contributor", "GLM 5.2", 200000, 32768),
+      entry("kimi-k3-contributor", "Kimi K3", 1048576, 65536),
+      entry("kimi-k2.7-code-contributor", "Kimi K2.7 Code", 262144, 32768),
+      entry("deepseek-v4.1-flash-contributor", "DeepSeek V4.1 Flash", 1000000, 65536),
+      entry("deepseek-v4-pro-contributor", "DeepSeek V4 Pro", 1000000, 65536),
+      entry("minimax-m3-contributor", "MiniMax M3", 1000000, 65536),
+      entry("qwen3.8-max-contributor", "Qwen 3.8 Max", 1000000, 65536),
+      entry("qwen3.8-flash-contributor", "Qwen 3.8 Flash", 1000000, 65536),
+      entry("qwen3.7-plus-contributor", "Qwen 3.7 Plus", 256000, 32768),
+      entry("grok-4.7-contributor", "Grok 4.7", 200000, 32768),
+    ],
+  },
+  {
+    key: "opencode-claude",
+    name: "OpenCode Go (Claude)",
+    icon: opencodeIcon,
+    keyHint: "opencode.ai/console → Personal workspace → Settings → Service Accounts → Create API Key (ten sam klucz co OpenCode Go). UWAGA: Wybierz Model type: Anthropic w UI.",
+    endpoints: {
+      anthropic: opencodeGoMessages("https://opencode.ai/inference/anthropic"),
+      openai: opencodeGoMessages("https://opencode.ai/inference/anthropic"),
+    },
+    models: [
+      entry("claude-haiku-5-5", "Claude Haiku 5.5", 200000, 8192),
     ],
   },
 ];

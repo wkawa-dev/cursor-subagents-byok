@@ -1,0 +1,10 @@
+name = "opencode-go-proxy"
+main = "opencode-go-proxy.ts"
+compatibility_date = "2024-01-01"
+
+# Opcjonalnie: dodaj service account key jako secret
+# wrangler secret put OPENCODE_API_KEY
+# Wtedy nie musisz przesyłać Authorization header z klienta
+
+[env.production]
+name = "opencode-go-proxy"
