@@ -12,10 +12,14 @@ OpenCode Go wymaga:
 
 ## Rozwiązanie
 
-Worker działa jako transparentne proxy:
+Worker działa jako proxy:
 - Dodaje user-agent: `cursor-byok/1.0 (compatible; codex)`
-- Przekazuje/generuje `x-opencode-session`
+- Przekazuje `x-opencode-session` od klienta; jeśli go brak, wylicza stabilny
+  identyfikator z klucza API i modelu (retry nie tworzy nowej sesji)
 - Automatycznie wybiera endpoint (`/go/` dla modeli Go, `/standard/` dla reszty)
+- Ponawia 429/502/503/504 (maks. 2 razy) przed rozpoczęciem streamu
+- Dla DeepSeek z narzędziami uzupełnia puste tury `reasoning`, których wymaga
+  thinking mode (inaczej bramka zwraca 400 po tool callach)
 - Obsługuje streaming responses
 - Przekazuje wszystkie błędy upstream
 
@@ -42,7 +46,7 @@ Jeśli chcesz, żeby worker automatycznie dodawał klucz API (nie musisz go prze
 
 ```bash
 npx wrangler secret put OPENCODE_API_KEY
-# Wklej: sk_eef270ab-4561-4325-a631-382fb961f148
+# Wklej swój klucz service account (sk_...)
 ```
 
 ## Konfiguracja w Cursor BYOK
@@ -69,7 +73,7 @@ Model type: OpenAI
 Request protocol: Responses API
 Server address: https://opencode-go-proxy.your-subdomain.workers.dev
 ☐ Use complete request URL
-API Key: sk_eef270ab-4561-4325-a631-382fb961f148
+API Key: sk_twoj_klucz_service_account
 Model name: muse-spark-1.3
 Custom Headers:
 {
@@ -135,6 +139,17 @@ curl https://opencode-go-proxy.your-subdomain.workers.dev/health
 - Worker nie ma `OPENCODE_API_KEY` w secrets
 - Nie przekazałeś `Authorization: Bearer sk_...` z BYOK
 - Klucz jest nieprawidłowy lub wygasł
+
+### 400 `The reasoning_content in the thinking mode must be passed back to the API`
+- DeepSeek z narzędziami wymaga historii reasoning każdej wcześniejszej tury
+  asystenta. Worker uzupełnia brakujące tury pustym `reasoning`; jeśli błąd
+  nadal występuje, zaktualizuj worker (`npm run deploy`) albo wyłącz thinking.
+- Ten błąd nie ma związku z rozmiarem requestu: 400–600 KB requesty przechodzą.
+
+### 429 `Upstream request failed: Endpoint is unavailable`
+- To chwilowa niedostępność bramki OpenCode Go, nie limit planu. Worker
+  ponawia automatycznie; przy dłuższych awariach sprawdź
+  https://status.opencode.ai.
 
 ### 400 Model is unavailable
 - Model nie jest dostępny w Twoim planie Go
