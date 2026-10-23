@@ -8,7 +8,7 @@ use crate::Result;
 
 use super::{now_ms, Store};
 
-pub const DATABASE_SIZE_CAP_BYTES: i64 = 1 << 30;
+pub const DATABASE_SIZE_CAP_BYTES: i64 = 16 << 30;
 const CHECK_INTERVAL: Duration = Duration::from_secs(60);
 /// A purge that starts above the cap continues until usage drops to this share of it.
 const PURGE_TARGET_PERCENT: i64 = 90;

@@ -14,7 +14,9 @@ use crate::{api::cursor::proxy, Error, Result};
 
 pub const BOOTSTRAP_STATSIG_PATH: &str = "/aiserver.v1.AnalyticsService/BootstrapStatsig";
 const AGENT_RETRIES_GATE: &str = "nal_agent_retries";
+const LOCAL_LOOP_GATE: &str = "agent_host_local_loop";
 const LOCAL_RULE: &str = "local_enabled";
+const LOCAL_DISABLED_RULE: &str = "local_disabled";
 
 #[derive(Clone, PartialEq, Message)]
 struct BootstrapStatsigResponse {
@@ -52,6 +54,7 @@ fn patch_upstream(response: proxy::BufferedResponse) -> Result<Response<Body>> {
     let mut message = BootstrapStatsigResponse::decode(payload)?;
     let mut config = serde_json::from_str::<Value>(&message.config)?;
     enable_agent_retries(&mut config)?;
+    disable_local_loop(&mut config)?;
     message.config = serde_json::to_string(&config)?;
     Ok(response.with_body(encode_unary(&message, framed)))
 }
@@ -75,6 +78,7 @@ fn local_response() -> Result<Response<Body>> {
         "time": generated_at_ms
     });
     enable_agent_retries(&mut config)?;
+    disable_local_loop(&mut config)?;
     let message = BootstrapStatsigResponse {
         config: serde_json::to_string(&config)?,
         generated_at_ms,
@@ -97,7 +101,20 @@ fn local_response() -> Result<Response<Body>> {
 }
 
 fn enable_agent_retries(config: &mut Value) -> Result<()> {
-    let gate_key = statsig_key(config, AGENT_RETRIES_GATE);
+    set_gate(config, AGENT_RETRIES_GATE, true)
+}
+
+/// Cursor 3.27 routes eligible agent turns through the local agent loop, which
+/// speaks `InferenceService.RunInference` (`RunInferenceClientMessage`) over the
+/// bidi channel. The local agent only implements the legacy backend loop
+/// (`AgentClientMessage`), so force the local-loop feature gate off and let the
+/// client use that loop instead.
+fn disable_local_loop(config: &mut Value) -> Result<()> {
+    set_gate(config, LOCAL_LOOP_GATE, false)
+}
+
+fn set_gate(config: &mut Value, name: &str, enabled: bool) -> Result<()> {
+    let gate_key = statsig_key(config, name);
     let root = config
         .as_object_mut()
         .ok_or_else(|| Error::Protocol("Statsig bootstrap config must be an object".into()))?;
@@ -106,7 +123,7 @@ fn enable_agent_retries(config: &mut Value) -> Result<()> {
         .or_insert_with(|| Value::Object(Map::new()))
         .as_object_mut()
         .ok_or_else(|| Error::Protocol("Statsig feature_gates must be an object".into()))?;
-    gates.insert(gate_key.clone(), enabled_gate(&gate_key));
+    gates.insert(gate_key.clone(), gate(&gate_key, enabled));
     Ok(())
 }
 
@@ -127,14 +144,19 @@ fn djb2(value: &str) -> String {
         .to_string()
 }
 
-fn enabled_gate(name: &str) -> Value {
+fn gate(name: &str, enabled: bool) -> Value {
+    let rule = if enabled {
+        LOCAL_RULE
+    } else {
+        LOCAL_DISABLED_RULE
+    };
     json!({
         "name": name,
-        "value": true,
-        "rule_id": LOCAL_RULE,
-        "ruleID": LOCAL_RULE,
-        "group_name": LOCAL_RULE,
-        "groupName": LOCAL_RULE,
+        "value": enabled,
+        "rule_id": rule,
+        "ruleID": rule,
+        "group_name": rule,
+        "groupName": rule,
         "secondary_exposures": [],
         "secondaryExposures": [],
         "undelegated_secondary_exposures": [],
@@ -173,4 +195,44 @@ fn encode_unary(message: &impl Message, framed: bool) -> Bytes {
     output.put_u32(payload.len() as u32);
     output.extend_from_slice(&payload);
     output.freeze()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disables_local_loop_gate_for_every_hash_mode() {
+        for hash_used in ["none", "djb2", "sha256"] {
+            let hash_config = json!({ "hash_used": hash_used });
+            let gate_key = statsig_key(&hash_config, LOCAL_LOOP_GATE);
+            let mut config = json!({
+                "feature_gates": {
+                    gate_key.clone(): gate(&gate_key, true)
+                },
+                "dynamic_configs": {},
+                "layer_configs": {},
+                "has_updates": true,
+                "hash_used": hash_used
+            });
+
+            disable_local_loop(&mut config).unwrap();
+
+            let entry = &config["feature_gates"][&gate_key];
+            assert_eq!(entry["value"], Value::Bool(false));
+            assert_eq!(entry["rule_id"], LOCAL_DISABLED_RULE);
+            assert_eq!(entry["group_name"], LOCAL_DISABLED_RULE);
+        }
+    }
+
+    #[test]
+    fn enables_agent_retries_gate() {
+        let mut config = json!({"feature_gates": {}, "has_updates": true, "hash_used": "none"});
+
+        enable_agent_retries(&mut config).unwrap();
+
+        let entry = &config["feature_gates"][AGENT_RETRIES_GATE];
+        assert_eq!(entry["value"], Value::Bool(true));
+        assert_eq!(entry["rule_id"], LOCAL_RULE);
+    }
 }
