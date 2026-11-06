@@ -161,21 +161,30 @@ pub fn decode(request: &ai::BidiAppendRequest) -> Result<DecodedAppend> {
         .filter(|id| !id.is_empty())
         .ok_or_else(|| Error::Protocol("BidiAppend request_id is required".into()))?;
     if !request.data_binary.is_empty() {
-        return Err(Error::Protocol(
-            "BidiAppend data_binary is not part of the captured protocol".into(),
-        ));
-    }
-    if request.data.is_empty() {
-        return Err(Error::Protocol(
+        // Cursor ≥3.29 sends the message as raw protobuf bytes (field 4)
+        // instead of the legacy hex string (field 1).
+        message_from_binary(&request.data_binary, "data_binary")
+    } else if !request.data.is_empty() {
+        let payload = hex::decode(&request.data)
+            .map_err(|error| Error::Protocol(format!("invalid BidiAppend hex: {error}")))?;
+        message_from_binary(&payload, "data")
+    } else {
+        Err(Error::Protocol(
             "BidiAppend contains no AgentClientMessage".into(),
-        ));
+        ))
     }
-    let payload = hex::decode(&request.data)
-        .map_err(|error| Error::Protocol(format!("invalid BidiAppend hex: {error}")))?;
-    Ok(DecodedAppend {
+    .map(|message| DecodedAppend {
         request_id: request_id.into(),
         seqno: request.append_seqno,
-        message: agent::AgentClientMessage::decode(payload.as_slice())?,
+        message,
+    })
+}
+
+fn message_from_binary(payload: &[u8], field: &'static str) -> Result<agent::AgentClientMessage> {
+    agent::AgentClientMessage::decode(payload).map_err(|error| {
+        Error::Protocol(format!(
+            "invalid BidiAppend {field} AgentClientMessage: {error}"
+        ))
     })
 }
 
@@ -208,4 +217,61 @@ pub async fn append(
         })
         .await?;
     Ok(ai::BidiAppendResponse {})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_request_message(model_id: &str) -> agent::AgentClientMessage {
+        agent::AgentClientMessage {
+            message: Some(agent::agent_client_message::Message::RunRequest(
+                agent::AgentRunRequest {
+                    requested_model: Some(agent::RequestedModel {
+                        model_id: model_id.into(),
+                        ..Default::default()
+                    }),
+                    conversation_id: Some("conv-1".into()),
+                    ..Default::default()
+                },
+            )),
+        }
+    }
+
+    #[test]
+    fn decode_accepts_data_binary() {
+        let message = run_request_message("my-model");
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+        let decoded = decode(&ai::BidiAppendRequest {
+            data: String::new(),
+            request_id: Some(ai::BidiRequestId {
+                request_id: "req-1".into(),
+            }),
+            append_seqno: 7,
+            data_binary: payload,
+        })
+        .unwrap();
+        assert_eq!(decoded.request_id, "req-1");
+        assert_eq!(decoded.seqno, 7);
+        assert_eq!(decoded.model_id(), Some("my-model"));
+        assert_eq!(decoded.conversation_id(), Some("conv-1"));
+    }
+
+    #[test]
+    fn decode_still_accepts_legacy_hex_data() {
+        let message = run_request_message("my-model");
+        let mut payload = Vec::new();
+        message.encode(&mut payload).unwrap();
+        let decoded = decode(&ai::BidiAppendRequest {
+            data: hex::encode(&payload),
+            request_id: Some(ai::BidiRequestId {
+                request_id: "req-2".into(),
+            }),
+            append_seqno: 0,
+            data_binary: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(decoded.model_id(), Some("my-model"));
+    }
 }
