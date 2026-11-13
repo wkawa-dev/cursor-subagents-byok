@@ -113,8 +113,11 @@ impl HttpHandler for CursorRelay {
         mut request: Request<Body>,
     ) -> RequestOrResponse {
         let original = request.uri().clone();
+        let host = original.host().unwrap_or_default().to_owned();
+        let path = original.path().to_owned();
         let locally_routed = should_route_locally(original.path(), *self.tab_mode.read());
-        if is_cursor_host(original.host().unwrap_or_default()) && locally_routed {
+        if is_cursor_host(&host) && locally_routed {
+            tracing::info!(%host, %path, "routing Cursor request to local backend");
             if let Ok(value) = original.to_string().parse() {
                 request.headers_mut().insert(UPSTREAM_URL_HEADER, value);
             }
@@ -125,6 +128,10 @@ impl HttpHandler for CursorRelay {
             if let Ok(uri) = format!("http://{}{}", self.backend, path).parse::<Uri>() {
                 *request.uri_mut() = uri;
             }
+        } else if is_cursor_host(&host) && is_agent_rpc(&path) {
+            // Visible at info level on purpose: a new/unknown agent RPC means
+            // Cursor moved traffic and BYOK silently stops working otherwise.
+            tracing::info!(%host, %path, "passing Cursor agent RPC through to upstream (no local handler)");
         }
         request.into()
     }
@@ -134,10 +141,14 @@ impl HttpHandler for CursorRelay {
         _ctx: &HttpContext,
         request: &Request<Body>,
     ) -> bool {
-        request
+        let intercept = request
             .uri()
             .authority()
-            .is_some_and(|authority| is_cursor_host(authority.host()))
+            .is_some_and(|authority| is_cursor_host(authority.host()));
+        if intercept {
+            tracing::debug!(uri = %request.uri(), "intercepting Cursor CONNECT");
+        }
+        intercept
     }
 
     async fn should_intercept_tls(
@@ -145,7 +156,14 @@ impl HttpHandler for CursorRelay {
         _ctx: &HttpContext,
         hello: hudsucker::rustls::server::ClientHello<'_>,
     ) -> bool {
-        hello.server_name().is_some_and(is_cursor_host)
+        let intercept = hello.server_name().is_some_and(is_cursor_host);
+        if intercept {
+            tracing::debug!(
+                sni = hello.server_name().unwrap_or_default(),
+                "intercepting Cursor TLS"
+            );
+        }
+        intercept
     }
 }
 
@@ -157,7 +175,9 @@ pub fn is_cursor_host(host: &str) -> bool {
 fn is_local_path(path: &str) -> bool {
     matches!(
         path,
-        "/agent.v1.AgentService/RunSSE"
+        "/agent.v1.AgentService/Run"
+            | "/agent.v1.AgentService/RunSSE"
+            | "/agent.v1.AgentService/RunPoll"
             | "/aiserver.v1.BidiService/BidiAppend"
             | "/aiserver.v1.AiService/AvailableDocs"
             | "/aiserver.v1.DashboardService/GetEffectiveUserPlugins"
@@ -195,6 +215,12 @@ fn should_route_locally(path: &str, tab_mode: TabMode) -> bool {
     is_local_path(path) || (is_tab_path(path) && tab_mode != TabMode::Direct)
 }
 
+/// Agent RPCs (known or future) that bypass local handling must stay visible
+/// in logs instead of silently tunneling past the backend.
+fn is_agent_rpc(path: &str) -> bool {
+    path.contains("AgentService") || path.contains("BidiService")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -202,6 +228,9 @@ mod tests {
     #[test]
     fn cursor_cli_transport_and_model_metadata_routes_stay_local() {
         for path in [
+            "/agent.v1.AgentService/Run",
+            "/agent.v1.AgentService/RunSSE",
+            "/agent.v1.AgentService/RunPoll",
             "/aiserver.v1.AiService/GetServerConfig",
             "/aiserver.v1.ServerConfigService/GetServerConfig",
             "/agent.v1.AgentService/GetDefaultModelForCli",

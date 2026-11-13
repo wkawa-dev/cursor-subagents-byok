@@ -71,7 +71,7 @@ fn is_end_stream_frame(frame: &Bytes) -> bool {
         .is_some_and(|flags| flags & END_STREAM_FLAG != 0)
 }
 
-fn end_stream_error(frame: &Bytes) -> Option<String> {
+pub(crate) fn end_stream_error(frame: &Bytes) -> Option<String> {
     connect::decode_frames(frame)
         .ok()?
         .into_iter()
@@ -95,20 +95,20 @@ fn end_stream_error(frame: &Bytes) -> Option<String> {
         })
 }
 
-struct LocalRunGuard {
+pub(crate) struct LocalRunGuard {
     handle: TransportHandle,
     completed: bool,
 }
 
 impl LocalRunGuard {
-    fn new(handle: TransportHandle) -> Self {
+    pub(crate) fn new(handle: TransportHandle) -> Self {
         Self {
             handle,
             completed: false,
         }
     }
 
-    fn complete(&mut self) {
+    pub(crate) fn complete(&mut self) {
         self.completed = true;
     }
 }
@@ -166,12 +166,12 @@ enum TraceStreamEvent {
     Finish(Option<String>),
 }
 
-struct TraceStreamSink {
+pub(crate) struct TraceStreamSink {
     sender: Option<mpsc::UnboundedSender<TraceStreamEvent>>,
 }
 
 impl TraceStreamSink {
-    fn new(trace: Option<CursorTraceRecorder>, source: &'static str) -> Self {
+    pub(crate) fn new(trace: Option<CursorTraceRecorder>, source: &'static str) -> Self {
         let Some(trace) = trace else {
             return Self { sender: None };
         };
@@ -195,13 +195,13 @@ impl TraceStreamSink {
         }
     }
 
-    fn chunk(&self, chunk: &Bytes) {
+    pub(crate) fn chunk(&self, chunk: &Bytes) {
         if let Some(sender) = &self.sender {
             let _ = sender.send(TraceStreamEvent::Chunk(chunk.clone()));
         }
     }
 
-    fn finish(&mut self, error: Option<String>) {
+    pub(crate) fn finish(&mut self, error: Option<String>) {
         if let Some(sender) = self.sender.take() {
             let _ = sender.send(TraceStreamEvent::Finish(error));
         }
